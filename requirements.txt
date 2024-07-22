@@ -1,0 +1,10 @@
+numpy
+pandas
+firebase-admin
+flask
+groq
+jobspy
+scikit-learn
+python-dotenv
+flask-cors
+gunicorn
