@@ -145,8 +145,10 @@ def get_recommendations():
 
         # Step 5: Get unliked and wishlisted job IDs
         print("Getting unliked and wishlisted job IDs")
-        unliked_ids = get_user_job_ids("unliked") if db.collection("user").document(uid).collection("unliked").stream() else set()
-        wishlisted_ids = get_user_job_ids("wishlisted") if db.collection("user").document(uid).collection("wishlisted").stream() else set()
+        unliked_ids = get_user_job_ids("unliked") if db.collection("user").document(uid).collection(
+            "unliked").stream() else set()
+        wishlisted_ids = get_user_job_ids("wishlisted") if db.collection("user").document(uid).collection(
+            "wishlisted").stream() else set()
 
         # Step 6: Separate jobs into unliked, wishlisted, and neutral categories
         print("Separating jobs into unliked, wishlisted, and neutral categories")
@@ -158,7 +160,8 @@ def get_recommendations():
         def create_job_dataframe(job_list):
             print("Creating DataFrame for job list")
             df = pd.DataFrame(
-                [{'id': job.id, 'description': job.description if job.description else '', 'title': job.title} for job in job_list])
+                [{'id': job.id, 'description': job.description if job.description else '', 'title': job.title} for job
+                 in job_list])
             df['description'] = df['description'].fillna('')
             print(df.head())  # Debugging: Print the first few rows of the DataFrame
             return df
@@ -218,5 +221,10 @@ def get_recommendations():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/')
+def server_run():
+    print("Server Active")
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    app.run()
