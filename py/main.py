@@ -22,6 +22,7 @@ os.chdir(repository_root)
 initialize_firebase(config.FIREBASE_CREDENTIALS)
 logging.basicConfig(level=logging.DEBUG)
 
+
 def filter_jobs(jobs_list):
     exclude_keywords = ["bachelor", "accredited", "college", "undergraduate", "major", "mba", "degree", "Fulltime",
                         "Full-time", "full time", "Full-Time", "full-time", "Full Time", "related experience",
@@ -37,13 +38,14 @@ def filter_jobs(jobs_list):
         description_lower = str(job.description).lower()
         title_lower = job.title.lower()
         if (all(keyword not in description_lower for keyword in exclude_keywords) and
-            any(keyword in description_lower for keyword in include_keywords) and
-            any(phrase in description_lower for phrase in include_phrases) and
-            all(phrase not in description_lower for phrase in exclude_phrases) and
-            all(title not in title_lower for title in exclude_titles)):
+                any(keyword in description_lower for keyword in include_keywords) and
+                any(phrase in description_lower for phrase in include_phrases) and
+                all(phrase not in description_lower for phrase in exclude_phrases) and
+                all(title not in title_lower for title in exclude_titles)):
             filtered_jobs.append(job)
 
     return filtered_jobs
+
 
 def scrape_jobs_from_params(country, radius, remote, age):
     try:
@@ -60,6 +62,7 @@ def scrape_jobs_from_params(country, radius, remote, age):
     except Exception as e:
         logging.error(f"Error scraping jobs: {e}")
         raise
+
 
 def get_job_prestige(filtered_jobs):
     final_job_list = []
@@ -85,12 +88,14 @@ def get_job_prestige(filtered_jobs):
 
     return final_job_list, job_data
 
+
 def add_jobs_to_firestore(jobs):
     for job in jobs:
         try:
             job.firestoreAdd()
         except Exception as e:
             logging.error(f"Error adding job {job.id} to Firestore: {e}")
+
 
 @app.route('/server/scrape', methods=['POST'])
 def get_jobs():
@@ -114,37 +119,61 @@ def get_jobs():
 
     return jsonify(job_data)
 
+
 @app.route('/server/recommend', methods=['POST'])
 def get_recommendations():
     try:
+        # Step 1: Get user ID from the request
+        print("Getting user ID from request")
         uid = request.json.get('uid')
+
+        # Step 2: Initialize Firestore client
+        print("Initializing Firestore client")
         db = firestore.client()
 
+        # Step 3: Retrieve all job data from Firestore
+        print("Retrieving job data from Firestore")
         jobs_ref = db.collection('jobs')
         job_data = [Jobs.from_firebase(doc.to_dict()) for doc in jobs_ref.stream()]
-        for job in job_data:
-            job.description = job.description or ''
 
+        # Step 4: Define a helper function to get user-specific job IDs
         def get_user_job_ids(collection_name):
-            return {doc.id for doc in db.collection("user").document(uid).collection(collection_name).stream()}
+            print(f"Retrieving job IDs for collection: {collection_name}")
+            collection_ref = db.collection("user").document(uid).collection(collection_name)
+            docs = collection_ref.stream()
+            return {doc.id for doc in docs}
 
-        unliked_ids = get_user_job_ids("unliked")
-        wishlisted_ids = get_user_job_ids("wishlisted")
+        # Step 5: Get unliked and wishlisted job IDs
+        print("Getting unliked and wishlisted job IDs")
+        unliked_ids = get_user_job_ids("unliked") if db.collection("user").document(uid).collection("unliked").stream() else set()
+        wishlisted_ids = get_user_job_ids("wishlisted") if db.collection("user").document(uid).collection("wishlisted").stream() else set()
 
+        # Step 6: Separate jobs into unliked, wishlisted, and neutral categories
+        print("Separating jobs into unliked, wishlisted, and neutral categories")
         unliked_jobs = [job for job in job_data if job.id in unliked_ids]
         wishlisted_jobs = [job for job in job_data if job.id in wishlisted_ids]
         job_data = [job for job in job_data if job.id not in wishlisted_ids and job.id not in unliked_ids]
 
+        # Step 7: Define a function to create a DataFrame from job list
         def create_job_dataframe(job_list):
-            df = pd.DataFrame([{'id': job.id, 'description': job.description or '', 'title': job.title} for job in job_list])
+            print("Creating DataFrame for job list")
+            df = pd.DataFrame(
+                [{'id': job.id, 'description': job.description if job.description else '', 'title': job.title} for job in job_list])
             df['description'] = df['description'].fillna('')
+            print(df.head())  # Debugging: Print the first few rows of the DataFrame
             return df
 
+        # Step 8: Create DataFrames for different job categories
+        print("Creating DataFrames for jobs, unliked jobs, and wishlisted jobs")
         df_jobs = create_job_dataframe(job_data)
         df_unliked = create_job_dataframe(unliked_jobs)
         df_wishlist = create_job_dataframe(wishlisted_jobs)
 
+        # Step 9: Define a function to tokenize descriptions and create TF-IDF matrix
         def tokenize_descriptions(df, vectorizer=None):
+            print("Tokenizing descriptions")
+            if 'description' not in df.columns:
+                raise ValueError("DataFrame must contain a 'description' column")
             if vectorizer is None:
                 vectorizer = TfidfVectorizer(stop_words='english')
                 vectors = vectorizer.fit_transform(df['description'])
@@ -152,26 +181,42 @@ def get_recommendations():
                 vectors = vectorizer.transform(df['description'])
             return vectors, vectorizer
 
+        # Step 10: Tokenize job descriptions and create TF-IDF matrices
+        print("Creating TF-IDF matrices for job descriptions")
         tfidf_matrix_jobs, vectorizer = tokenize_descriptions(df_jobs)
         tfidf_matrix_unliked, _ = tokenize_descriptions(df_unliked, vectorizer)
         tfidf_matrix_wishlist, _ = tokenize_descriptions(df_wishlist, vectorizer)
 
+        # Step 11: Compute cosine similarities
+        print("Computing cosine similarities")
         cosine_simJ_W = linear_kernel(tfidf_matrix_jobs, tfidf_matrix_wishlist)
         cosine_simJ_U = linear_kernel(tfidf_matrix_jobs, tfidf_matrix_unliked)
 
+        # Step 12: Calculate mean similarity scores
+        print("Calculating mean similarity scores")
         mean_sim_to_W = np.mean(cosine_simJ_W, axis=1)
         mean_sim_to_U = np.mean(cosine_simJ_U, axis=1)
+
+        # Step 13: Combine scores and rank jobs
+        print("Combining scores and ranking jobs")
         combined_score = mean_sim_to_W - mean_sim_to_U
         ranked_indices = np.argsort(combined_score)[::-1]
         top_points = ranked_indices[:10]
 
+        # Step 14: Get top 10 recommended jobs
+        print("Retrieving top 10 recommended jobs")
         top_10_jobs = df_jobs.iloc[top_points]
 
+        # Step 15: Return the IDs of the top 10 jobs
+        print("Returning top 10 job IDs")
         return jsonify(top_10_jobs['id'].tolist())
 
     except Exception as e:
+        # Step 16: Log and return the error if an exception occurs
         logging.error(f"Error in get_recommendations: {str(e)}")
+        print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=8000)
