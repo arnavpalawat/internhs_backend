@@ -221,10 +221,6 @@ def get_recommendations():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/')
-def server_run():
-    print("Server Active")
-
 
 if __name__ == '__main__':
     app.run()
