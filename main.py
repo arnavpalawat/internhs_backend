@@ -96,6 +96,10 @@ def add_jobs_to_firestore(jobs):
         except Exception as e:
             logging.error(f"Error adding job {job.id} to Firestore: {e}")
 
+@app.route('/', methods=['POST'])
+def startpoint():
+    return jsonify("Success")
+
 
 @app.route('/server/scrape', methods=['POST'])
 def get_jobs():
